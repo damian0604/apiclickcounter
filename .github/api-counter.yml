@@ -1,0 +1,60 @@
+name: API Counter
+
+on:
+  workflow_dispatch:
+    inputs:
+      item_id:
+        description: "ID for which we will look up the count, increase by one, and return"
+        required: true
+        type: string
+
+jobs:
+  update-counter:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install SQLite
+        run: sudo apt-get install -y sqlite3
+
+      - name: Ensure database exists
+        run: |
+          if [ ! -f counter.db ]; then
+            echo "Database doesn't exist yet, Create one ..."
+            sqlite3 counter.db "CREATE TABLE IF NOT EXISTS counters (id TEXT PRIMARY KEY, count INTEGER NOT NULL);"
+          fi
+
+      - name: Update counter
+        id: update
+        run: |
+          ID="${{ github.event.inputs.item_id }}"
+
+          sqlite3 counter.db "
+            INSERT INTO counters (id, count)
+            VALUES ('$ID', 0)
+            ON CONFLICT(id) DO NOTHING;
+          "
+
+          sqlite3 counter.db "
+            UPDATE counters SET count = count + 1 WHERE id = '$ID';
+          "
+
+          NEW_COUNT=$(sqlite3 counter.db "SELECT count FROM counters WHERE id = '$ID';")
+
+          echo "New count: $NEW_COUNT"
+
+          echo "$NEW_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Commit updated database
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add counter.db
+          git commit -m "Update counter for ${{ github.event.inputs.item_id }}" || echo "Nothing to commit"
+          git push
+
+
+      - name: Print output
+        run: echo "ID ${{ github.event.inputs.item_id }} count is ${{ steps.update.outputs.count }}"
